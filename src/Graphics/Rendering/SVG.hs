@@ -62,6 +62,7 @@ import qualified Data.Text                   as T
 
 -- from lucid-svg
 import           Lucid.Svg                   hiding (renderText)
+import qualified Lucid.Svg.Attributes        as A
 
 -- from base64-bytestring, bytestring
 import qualified Data.ByteString.Base64.Lazy as BS64
@@ -72,6 +73,8 @@ import           Codec.Picture
 
 -- from same package
 import Diagrams.Backend.SVG.Attributes       (SvgId(..),SvgClass(..))
+
+import           Data.Maybe                  (catMaybes)
 
 -- | Constaint on number type that diagrams-svg can use to render an SVG. This
 --   includes the common number types: Double, Float
@@ -90,16 +93,22 @@ getNumAttr f = (f <$>) . getAttr
 
 -- | @svgHeader w h defs s@: @w@ width, @h@ height,
 --   @defs@ global definitions for defs sections, @s@ actual SVG content.
-svgHeader :: SVGFloat n => n -> n -> Maybe SvgM -> SvgM -> SvgM
-svgHeader w h defines s =  doctype_ <> with (svg11_ (defs_  ds <> s))
-  [ width_  (toText w)
-  , height_ (toText h)
-  , font_size_ "1"
-  , viewBox_ (pack . unwords $ map show ([0, 0, round w, round h] :: [Int]))
-  , stroke_ "rgb(0,0,0)"
-  , stroke_opacity_ "1" ]
-  where
-    ds = fromMaybe mempty defines
+svgHeader :: SVGFloat n => n -> n -> Maybe SvgM -> Maybe T.Text -> Maybe T.Text -> Bool -> SvgM -> SvgM
+svgHeader w h defines idAttr style generateDoctype s = do
+  if generateDoctype then doctype_ else mempty
+  let attrs = [ width_  (toText w)
+              , height_ (toText h)
+              , font_size_ "1"
+              , viewBox_ (pack . unwords $ map show ([0, 0, round w, round h] :: [Int]))
+              , stroke_ "rgb(0,0,0)"
+              , stroke_opacity_ "1"
+              ] ++ catMaybes
+              [ fmap id_ idAttr
+              , fmap A.style_ style
+              ]
+  (`with` attrs) $ svg11_ $ do
+    defs_ $ fromMaybe mempty defines
+    s
 
 renderPath :: SVGFloat n => Path V2 n -> SvgM
 renderPath trs = if makePath == T.empty then mempty else path_ [d_ makePath]

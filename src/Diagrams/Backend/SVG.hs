@@ -93,7 +93,17 @@
 module Diagrams.Backend.SVG
   ( SVG(..) -- rendering token
   , B
-  , Options(..), sizeSpec, svgDefinitions, idPrefix -- for rendering options specific to SVG
+
+  -- for rendering options specific to SVG
+  , Options(..)
+  , defaultSVGOptions
+  , sizeSpec
+  , svgDefinitions
+  , idPrefix
+  , idAttr
+  , styleAttr
+  , generateDoctype
+
   , SVGFloat
 
   , renderSVG
@@ -233,11 +243,14 @@ instance SVGFloat n => Backend SVG V2 n where
   newtype Render  SVG V2 n = R (SvgRenderM n)
   type    Result  SVG V2 n = SvgM
   data    Options SVG V2 n = SVGOptions
-    { _size           :: SizeSpec V2 n   -- ^ The requested size.
-    , _svgDefinitions :: Maybe SvgM
-                          -- ^ Custom definitions that will be added to the @defs@
-                          --   section of the output.
-    , _idPrefix       :: T.Text
+    { _size            :: SizeSpec V2 n   -- ^ The requested size.
+    , _svgDefinitions  :: Maybe SvgM
+                           -- ^ Custom definitions that will be added to the @defs@
+                           --   section of the output.
+    , _idAttr          :: Maybe T.Text
+    , _styleAttr       :: Maybe T.Text
+    , _idPrefix        :: T.Text
+    , _generateDoctype :: Bool
     }
 
   renderRTree _ opts rt = runRenderM (opts ^.idPrefix) svgOutput
@@ -246,7 +259,7 @@ instance SVGFloat n => Backend SVG V2 n where
         let R r    = rtree (splitTextureFills rt)
             V2 w h = specToSize 100 (opts^.sizeSpec)
         svg <- r
-        return $ R.svgHeader w h (opts^.svgDefinitions) svg
+        return $ R.svgHeader w h (opts^.svgDefinitions) (opts^.idAttr) (opts^.styleAttr) (opts^.generateDoctype) svg
 
   adjustDia c opts d = adjustDia2D sizeSpec c opts (d # reflectY)
 
@@ -275,6 +288,15 @@ svgDefinitions f opts =
 idPrefix :: SVGFloat n => Lens' (Options SVG V2 n) T.Text
 idPrefix f opts = f (_idPrefix opts) <&> \i -> opts { _idPrefix = i }
 
+idAttr :: SVGFloat n => Lens' (Options SVG V2 n) (Maybe T.Text)
+idAttr f opts = f (_idAttr opts) <&> \i -> opts { _idAttr = i }
+
+styleAttr :: SVGFloat n => Lens' (Options SVG V2 n) (Maybe T.Text)
+styleAttr f opts = f (_styleAttr opts) <&> \i -> opts { _styleAttr = i }
+
+generateDoctype :: SVGFloat n => Lens' (Options SVG V2 n) Bool
+generateDoctype f opts = f (_generateDoctype opts) <&> \i -> opts { _generateDoctype = i }
+
 -- paths ---------------------------------------------------------------
 
 attributedRender :: SVGFloat n => SvgM -> SvgRenderM n
@@ -297,14 +319,19 @@ instance SVGFloat n => Renderable (Text n) SVG where
 instance SVGFloat n => Renderable (DImage n Embedded) SVG where
   render _ = R . return . R.renderDImageEmb
 
+defaultSVGOptions :: SVGFloat n => SizeSpec V2 n -> Options SVG V2 n
+defaultSVGOptions spec = SVGOptions spec Nothing Nothing Nothing "" True
+
 -- | Render a diagram as an SVG, writing to the specified output file
 --   and using the requested size.
 renderSVG :: SVGFloat n => FilePath -> SizeSpec V2 n -> QDiagram SVG V2 n Any -> IO ()
-renderSVG outFile spec = renderSVG' outFile (SVGOptions spec Nothing (mkPrefix outFile))
+renderSVG outFile spec = renderSVG' outFile $
+  defaultSVGOptions spec & idPrefix .~ mkPrefix outFile
 
 -- | Render a diagram as a pretty printed SVG.
 renderPretty :: SVGFloat n => FilePath -> SizeSpec V2 n -> QDiagram SVG V2 n Any -> IO ()
-renderPretty outFile spec = renderPretty' outFile (SVGOptions spec Nothing (mkPrefix outFile))
+renderPretty outFile spec = renderPretty' outFile $
+  defaultSVGOptions spec & idPrefix .~ mkPrefix outFile
 
 -- Create a prefile using the basename of the output file. Only standard
 -- letters are considered.
@@ -355,5 +382,5 @@ instance SVGFloat n => Renderable (DImage n (Native Img)) SVG where
     return $ R.renderDImage di $ R.dataUri mime d
 
 instance (Hashable n, SVGFloat n) => Hashable (Options SVG V2 n) where
-  hashWithSalt s  (SVGOptions sz defs _) = s `hashWithSalt` sz `hashWithSalt` ds
+  hashWithSalt s  (SVGOptions sz defs ia sa _ rg) = s `hashWithSalt` sz `hashWithSalt` ds `hashWithSalt` ia `hashWithSalt` sa `hashWithSalt` rg
     where ds = fmap renderBS defs
